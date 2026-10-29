@@ -65,20 +65,32 @@ def search_path(rows: int, cols: int, walls_raw: list[list[int]], start_raw: lis
                     parent[nxt] = current
                     frontier.append(nxt)
     elif algorithm == "dfs":
-        frontier = [start]
-        discovered = {start}
-        while frontier:
-            current = frontier.pop()
-            visited_order.append([current[0], current[1]])
-            if current == end:
-                found = True
-                break
-            # Reverse to keep traversal direction intuitive with a LIFO stack.
-            for nxt in reversed(list(_neighbors(current, rows, cols, walls))):
-                if nxt not in discovered:
-                    discovered.add(nxt)
-                    parent[nxt] = current
-                    frontier.append(nxt)
+        visited = {start}
+        visited_order.append([start[0], start[1]])
+        if start == end:
+            found = True
+        else:
+            # Keep a frame for each active branch so cross-links do not mark
+            # a cell visited before DFS actually enters it.
+            frontier: list[tuple[Cell, int, list[Cell]]] = [
+                (start, 0, list(_neighbors(start, rows, cols, walls)))
+            ]
+            while frontier and not found:
+                current, next_index, neighbors = frontier[-1]
+                if next_index >= len(neighbors):
+                    frontier.pop()
+                    continue
+                frontier[-1] = (current, next_index + 1, neighbors)
+                nxt = neighbors[next_index]
+                if nxt in visited:
+                    continue
+                visited.add(nxt)
+                parent[nxt] = current
+                visited_order.append([nxt[0], nxt[1]])
+                if nxt == end:
+                    found = True
+                    break
+                frontier.append((nxt, 0, list(_neighbors(nxt, rows, cols, walls))))
     else:
         def heuristic(cell: Cell) -> int:
             return abs(cell[0] - end[0]) + abs(cell[1] - end[1])

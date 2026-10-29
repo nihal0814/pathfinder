@@ -6,6 +6,7 @@ type Algorithm = 'bfs' | 'dfs' | 'astar';
 type Result = { algorithm: Algorithm; found: boolean; visited_order: number[][]; path: number[][]; visited_count: number; path_length: number; execution_time_ms: number; message: string };
 const ROWS = 20, COLS = 30;
 const START: Cell = { r: 10, c: 4 }, END: Cell = { r: 10, c: 25 };
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8001';
 const key = (r: number, c: number) => `${r},${c}`;
 const toCell = (r: number, c: number): Cell => ({ r, c });
 const algorithms: { id: Algorithm; title: string; subtitle: string; color: string }[] = [
@@ -30,12 +31,24 @@ export default function App() {
   const [showLegend, setShowLegend] = useState(true);
   const [compare, setCompare] = useState<Result[]>([]);
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [isComparing, setIsComparing] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const timer = useRef<number | null>(null);
   const drag = useRef(false);
   const cells = useMemo(() => Array.from({ length: ROWS * COLS }, (_, i) => ({ r: Math.floor(i / COLS), c: i % COLS })), []);
 
-  useEffect(() => { fetch('http://localhost:8000/api/health').then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(() => setApiStatus('online')).catch(() => setApiStatus('offline')); }, []);
+  useEffect(() => {
+    let active = true;
+    const checkApi = () => {
+      fetch(`${API_URL}/api/health`)
+        .then(response => { if (!response.ok) throw new Error(); return response.json(); })
+        .then(() => { if (active) setApiStatus('online'); })
+        .catch(() => { if (active) setApiStatus('offline'); });
+    };
+    checkApi();
+    const interval = window.setInterval(checkApi, 3000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
   useEffect(() => () => { if (timer.current) window.clearInterval(timer.current); }, []);
 
   const clearAnimation = useCallback(() => {
@@ -47,13 +60,13 @@ export default function App() {
   const runSearch = useCallback(async (selected: Algorithm = algorithm, comparison = false) => {
     clearAnimation(); setVisited(new Set()); setPath(new Set()); setResult(null); setStepIndex(0); setIsRunning(true); setMessage(`Running ${selected.toUpperCase()}…`);
     try {
-      const response = await fetch('http://localhost:8000/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: ROWS, cols: COLS, walls: [...walls].map(v => v.split(',').map(Number)), start: [start.r, start.c], end: [end.r, end.c], algorithm: selected }) });
+      const response = await fetch(`${API_URL}/api/search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: ROWS, cols: COLS, walls: [...walls].map(v => v.split(',').map(Number)), start: [start.r, start.c], end: [end.r, end.c], algorithm: selected }) });
       const data: Result | { detail: string } = await response.json();
       if (!response.ok) throw new Error('detail' in data ? data.detail : 'Search failed');
       const solved = data as Result; setResult(solved); setIsRunning(false);
       if (comparison) { setCompare(prev => [...prev.filter(x => x.algorithm !== solved.algorithm), solved]); setVisited(new Set(solved.visited_order.map(p => key(p[0], p[1])))); setPath(new Set(solved.path.map(p => key(p[0], p[1])))); setStepIndex(solved.visited_order.length); setMessage(`${selected.toUpperCase()}: ${solved.message}`); }
       else { setVisited(new Set()); setPath(new Set()); setStepIndex(0); setMessage(`${selected.toUpperCase()} ready. Press Play to animate exploration.`); setIsPlaying(true); }
-    } catch (err) { setIsRunning(false); setIsPlaying(false); setMessage(err instanceof Error ? `${err.message}. Is the backend running on port 8000?` : 'Unable to run search.'); }
+    } catch (err) { setIsRunning(false); setIsPlaying(false); setMessage(err instanceof Error ? `${err.message}. Is the Pathfinder backend running?` : 'Unable to run search.'); }
   }, [algorithm, walls, start, end, clearAnimation]);
 
   useEffect(() => {
@@ -88,7 +101,7 @@ export default function App() {
     setWalls(next); setMessage('Random maze generated. Start a search when ready.');
   };
   const clearWalls = () => { setWalls(new Set()); clearSearch(); };
-  const compareAll = async () => { clearAnimation(); setCompare([]); setMessage('Comparing all algorithms…'); const output: Result[] = []; for (const a of ['bfs', 'dfs', 'astar'] as Algorithm[]) { try { const response = await fetch('http://localhost:8000/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: ROWS, cols: COLS, walls: [...walls].map(v => v.split(',').map(Number)), start: [start.r, start.c], end: [end.r, end.c], algorithm: a }) }); if (!response.ok) throw new Error('Backend search failed'); output.push(await response.json()); } catch { setMessage('Could not compare algorithms. Check that the backend is running.'); return; } } setCompare(output); const chosen = output.find(x => x.algorithm === algorithm) || output[2]; setResult(chosen); setVisited(new Set(chosen.visited_order.map(p => key(p[0], p[1])))); setPath(new Set(chosen.path.map(p => key(p[0], p[1])))); setStepIndex(chosen.visited_order.length); setMessage('Comparison complete. Select an algorithm to inspect its metrics.'); };
+  const compareAll = async () => { clearAnimation(); setIsComparing(true); setCompare([]); setMessage('Comparing all algorithms…'); const output: Result[] = []; try { for (const a of ['bfs', 'dfs', 'astar'] as Algorithm[]) { const response = await fetch(`${API_URL}/api/search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: ROWS, cols: COLS, walls: [...walls].map(v => v.split(',').map(Number)), start: [start.r, start.c], end: [end.r, end.c], algorithm: a }) }); const data: Result | { detail: string } = await response.json(); if (!response.ok) throw new Error('detail' in data ? data.detail : 'Backend search failed'); output.push(data as Result); } setCompare(output); const chosen = output.find(x => x.algorithm === algorithm) || output[2]; setResult(chosen); setVisited(new Set(chosen.visited_order.map(p => key(p[0], p[1])))); setPath(new Set(chosen.path.map(p => key(p[0], p[1])))); setStepIndex(chosen.visited_order.length); setMessage('Comparison complete. Select an algorithm to inspect its metrics.'); } catch { setMessage('Could not compare algorithms. Check that the backend is running.'); } finally { setIsComparing(false); } };
 
   const currentAlgo = algorithms.find(a => a.id === algorithm)!;
   return <div className="app-shell">
@@ -99,7 +112,7 @@ export default function App() {
       <div className="field-label tools-label">MAZE EDITOR</div><div className="tool-row"><button className={`tool-btn ${tool === 'wall' ? 'active' : ''}`} onClick={() => setTool('wall')}><Square size={16}/> Draw walls</button><button className={`tool-btn ${tool === 'start' ? 'active' : ''}`} onClick={() => setTool('start')}><MousePointer2 size={16}/> Move start</button><button className={`tool-btn ${tool === 'end' ? 'active' : ''}`} onClick={() => setTool('end')}><Target size={16}/> Move end</button></div>
       <div className="button-row"><button className="secondary-btn" onClick={generateMaze}><Shuffle size={15}/> Random maze</button><button className="secondary-btn" onClick={clearWalls}><RotateCcw size={15}/> Clear walls</button></div>
       <div className="speed-control"><div className="speed-title"><span>Animation speed</span><strong>{speed < 8 ? 'Slow' : speed < 16 ? 'Normal' : 'Fast'}</strong></div><input aria-label="Animation speed" type="range" min="1" max="20" value={speed} onChange={e => setSpeed(Number(e.target.value))}/><div className="range-labels"><span>Slow</span><span>Fast</span></div></div>
-      <div className="primary-actions"><button className="run-btn" disabled={isRunning || apiStatus === 'offline'} onClick={() => runSearch()}>{isRunning ? <span className="spinner"/> : <Play size={17} fill="currentColor"/>}{isRunning ? 'Running…' : 'Run search'}</button><button className="compare-btn" disabled={isRunning || apiStatus === 'offline'} onClick={compareAll}><GitCompareArrows size={17}/> Compare all</button></div>
+      <div className="primary-actions"><button className="run-btn" disabled={isRunning || isComparing || apiStatus !== 'online'} onClick={() => runSearch()}>{isRunning ? <span className="spinner"/> : <Play size={17} fill="currentColor"/>}{isRunning ? 'Running…' : 'Run search'}</button><button className="compare-btn" disabled={isRunning || isComparing || apiStatus !== 'online'} onClick={compareAll}><GitCompareArrows size={17}/> {isComparing ? 'Comparing…' : 'Compare all'}</button></div>
       <div className="keyboard-hint"><Info size={14}/><span>Click or drag cells to draw walls. Choose a tool to move start/end.</span></div>
     </aside>
     <section className="visual-column"><div className="panel grid-panel"><div className="grid-header"><div><span className="section-kicker">LIVE SIMULATION</span><h2>Maze canvas <span className="dimension-label">{ROWS} × {COLS}</span></h2></div><div className="grid-actions"><button className="mini-btn" onClick={() => { if (result) { setVisited(new Set(result.visited_order.slice(0, Math.min(stepIndex + 1, result.visited_order.length)).map(p => key(p[0], p[1])))); setStepIndex(i => Math.min(i + 1, result.visited_order.length)); setIsPlaying(false); } }} disabled={!result || stepIndex >= result.visited_order.length}><SkipForward size={15}/><span>Step</span></button><button className="mini-btn" onClick={() => { if (!result) { runSearch(); return; } if (isPlaying) { setIsPlaying(false); } else if (stepIndex >= result.visited_order.length) { setVisited(new Set()); setPath(new Set()); setStepIndex(0); setIsPlaying(true); } else { setIsPlaying(true); } }} disabled={isRunning}>{isPlaying ? <Pause size={15}/> : <Play size={15}/>}<span>{isPlaying ? 'Pause' : 'Play'}</span></button></div></div>

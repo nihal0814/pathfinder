@@ -29,10 +29,10 @@ cd backend
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8001
 ```
 
-If PowerShell blocks virtual environment activation, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in that terminal, then activate again. Alternatively use `.venv\Scripts\python.exe -m pip install -r requirements.txt` and `.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000` without activating.
+If PowerShell blocks virtual environment activation, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in that terminal, then activate again. Alternatively use `.venv\Scripts\python.exe -m pip install -r requirements.txt` and `.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8001` without activating.
 
 ### Terminal 2 — Frontend
 
@@ -62,9 +62,9 @@ py -m unittest discover -s tests -v
 
 ## API
 
-- `GET http://localhost:8000/api/health`
-- `POST http://localhost:8000/api/search`
-- Interactive API docs: `http://localhost:8000/docs`
+- `GET http://localhost:8001/api/health`
+- `POST http://localhost:8001/api/search`
+- Interactive API docs: `http://localhost:8001/docs`
 
 Example request body:
 
